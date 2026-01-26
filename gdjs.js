@@ -6,15 +6,6 @@ const gd = new GD();
 
 
 const getDumbLevels = async () => {
-  // let level = await gd.levels.search({ query: '131860273' });
-  // console.log(level);
-  // console.log(level.constructor.name);
-  // level = await level.resolve();
-  // console.log(level.copy.copyable);
-  // const { raw: rawData } = await level.decodeData();
-  // const parsedData = parseLevel(rawData);
-  // console.log(parsedData);
-
   const levels = await gd.levels.search({ difficulty: 'Easy' }, 100);
   console.log(levels.length)
   for (let i = 0; i < levels.length; i++) {
@@ -33,9 +24,16 @@ const getDumbLevels = async () => {
       stream.write(`\t"stats": {"downloads": ${level.stats.downloads}, "length": {"pretty": "${level.stats.length.pretty}", "raw": "${level.stats.length.raw}"}, "likes": ${level.stats.likes}, "objects": ${level.stats.objects}}`);
       stream.write('}');
       stream.end();
+
+
+      fs.writeFileSync(`./levels_data/${level.id}.json`, JSON.stringify(parsedLevel, null, 4));
+      // console.log(parsedLevel);
+
     } catch (e) {
       console.log(`Fetching level data failed for level ${level.id}`);
     }
+    // Wait 3 seconds
+    await new Promise((resolve) => setTimeout(resolve, 3000));
   }
 }
 
