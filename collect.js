@@ -4,7 +4,9 @@ import fs from 'fs';
 import path from 'path';
 
 const gd = new GD();
-const difficulties = ["Auto", "Easy", "Normal", "Hard", "Harder", "Insane"];
+// const difficulties = ["Auto", "Easy", "Normal", "Hard", "Harder", "Insane"];
+// const difficulties = ["Easy Demon", "Medium Demon", "Hard Demon", "Insane Demon", "Extreme Demon", "Insane"];
+const difficulties = ["Hard", "Harder"];
 const lvllengths = ["Tiny", "Short", "Medium", "Long", "XL"];
 const awards = [2, 3];
 
@@ -53,7 +55,9 @@ const saveLevelData = async (level) => {
 const runScanner = async () => {
     for (const diff of difficulties) {
         console.log(`--- Scanning Difficulty: ${diff} ---`);
-        const levels = await gd.levels.search({ difficulty: diff }, 500);
+        let queryNum = 1000;
+        if (diff.includes("Demon")) { queryNum = 200; }
+        const levels = await gd.levels.search({ difficulty: diff, award: 3 }, queryNum);
         for (const lvl of levels) {
             await saveLevelData(lvl);
             // Random delay 3-7s to mimic human behavior
@@ -62,23 +66,23 @@ const runScanner = async () => {
         await new Promise(r => setTimeout(r, 30000)); // Cool down
     }
 
-    for (const len of lvllengths) {
-        console.log(`--- Scanning Length: ${len} ---`);
-        const levels = await gd.levels.search({ length: len }, 500);
-        for (const lvl of levels) {
-            await saveLevelData(lvl);
-            await new Promise(r => setTimeout(r, 3000));
-        }
-    }
+    // for (const len of lvllengths) {
+    //     console.log(`--- Scanning Length: ${len} ---`);
+    //     const levels = await gd.levels.search({ length: len }, 500);
+    //     for (const lvl of levels) {
+    //         await saveLevelData(lvl);
+    //         await new Promise(r => setTimeout(r, 3000));
+    //     }
+    // }
 
-    for (const award of awards) {
-        console.log(`--- Scanning Award: ${award} ---`);
-        const levels = await gd.levels.search({ award: award }, 1000);
-        for (const lvl of levels) {
-            await saveLevelData(lvl);
-            await new Promise(r => setTimeout(r, 3000));
-        }
-    }
+    // for (const award of awards) {
+    //     console.log(`--- Scanning Award: ${award} ---`);
+    //     const levels = await gd.levels.search({ award: award }, 500);
+    //     for (const lvl of levels) {
+    //         await saveLevelData(lvl);
+    //         await new Promise(r => setTimeout(r, 3000));
+    //     }
+    // }
 };
 
 runScanner().catch(console.error);
