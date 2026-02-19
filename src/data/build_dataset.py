@@ -33,6 +33,8 @@ def process_level_data(data_file, metadata_file):
     x_max = float('-inf')
     y_min = float('inf')
     y_max = float('-inf')
+    trigger_count = 0
+    portal_count = 0
     for obj in objs:
         if obj.get("x") is not None:
             if obj.get("x") < x_min:
@@ -44,10 +46,16 @@ def process_level_data(data_file, metadata_file):
                 y_min = obj.get("y")
             if obj.get("y") > y_max:
                 y_max = obj.get("y")
+        if obj.get("type") == "trigger":
+            trigger_count += 1
+        if obj.get("type") == "portal":
+            portal_count += 1
 
     return {
         "id": level_id,
         "obj_count": obj_count,
+        "trigger_count": trigger_count,
+        "portal_count": portal_count,
         "x_min": x_min,
         "x_max": x_max,
         "y_min": y_min,
