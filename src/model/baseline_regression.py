@@ -91,7 +91,7 @@ def main():
     # Simple 2-layer MLP regression model
     model = MLPRegression(hidden_size=16)
     criterion = nn.MSELoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=2e-5)
+    optimizer = torch.optim.Adam(model.parameters(), weight_decay=1e-5, lr=2e-5)
 
     for epoch in range(100):
         # Calculate validation loss & accuracy
