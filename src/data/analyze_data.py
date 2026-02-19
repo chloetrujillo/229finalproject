@@ -24,6 +24,11 @@ def main():
     plt.hist(np.log(val_df["trigger_count"] + 1), bins=100, alpha=0.5, label="Val")
     plt.savefig("data/trigger_count_log.png")
     plt.close()
+    plt.figure(figsize=(10, 5))
+    plt.hist(val_df["trigger_count"] / val_df["obj_count"], bins=100, alpha=0.5, label="Val")
+    plt.savefig("data/trigger_count_ratio.png")
+    plt.close()
+
     plt.hist(test_df["portal_count"], bins=100, alpha=0.5, label="Test")
     plt.savefig("data/portal_count.png")
     plt.close()
@@ -31,7 +36,13 @@ def main():
     plt.hist(np.log(test_df["portal_count"] + 1), bins=100, alpha=0.5, label="Test")
     plt.savefig("data/portal_count_log.png")
     plt.close()
-    
+    plt.figure(figsize=(10, 5))
+    plt.hist(test_df["portal_count"] / test_df["obj_count"], bins=100, alpha=0.5, label="Test")
+    plt.savefig("data/portal_count_ratio.png")
+    plt.close()
+
+
+
     # plot distribution of x_max - x_min, y_max - y_min in train data as separate images
     # save as data/x_range.png, data/y_range.png
     plt.figure(figsize=(10, 5))

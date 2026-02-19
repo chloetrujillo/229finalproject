@@ -4,6 +4,7 @@ import os
 import pandas as pd
 from torch.utils.data import Dataset, DataLoader
 import numpy as np
+import matplotlib.pyplot as plt
 
 class GeometryDashDataset(Dataset):
     def __init__(self, df):
@@ -91,48 +92,92 @@ def main():
     # Simple 2-layer MLP regression model
     model = MLPRegression(hidden_size=16)
     criterion = nn.MSELoss()
-    optimizer = torch.optim.Adam(model.parameters(), weight_decay=1e-5, lr=2e-5)
+    optimizer = torch.optim.Adam(model.parameters(), weight_decay=1e-4, lr=3e-5)
+    
+    train_losses =[]
+    val_losses = []
+    val_accs = []
+    val_off_by_ones = []
 
     for epoch in range(100):
         # Calculate validation loss & accuracy
-        if epoch % 10 == 0:
-            model.eval()
-            with torch.no_grad():
-                got_right = 0
-                val_loss = 0.0
-                for x, y, stars in val_dataloader:
-                    y_pred = model(x)
-                    y_logits = torch.round(y_pred * 9) + 1
-                    got_right += (y_logits == stars).sum().item()
-                    loss = criterion(y_pred, y)
-                    val_loss += loss.item() * len(y)
-                val_loss /= len(val_dataset)
-                val_acc = got_right / len(val_dataset)
-                print(f"Validation Loss: {val_loss}, Validation Accuracy: {val_acc}")
-            model.train()
+        model.eval()
+        with torch.no_grad():
+            got_right = 0
+            val_loss = 0.0
+            off_by_one = 0
+            for x, y, stars in val_dataloader:
+                y_pred = model(x)
+                y_logits = torch.round(y_pred * 9) + 1
+                got_right += (y_logits == stars).sum().item()
+                off_by_one += ((y_logits - stars).abs() == 1).sum().item()
+                loss = criterion(y_pred, y)
+                val_loss += loss.item() * len(y)
+            val_loss /= len(val_dataset)
+            val_acc = got_right / len(val_dataset)
+            val_off_by_one_acc = (got_right + off_by_one) / len(val_dataset)
+            val_losses.append(val_loss)
+            val_accs.append(val_acc)
+            val_off_by_ones.append(val_off_by_one_acc)
+            print(f"Validation Loss: {val_loss}, Validation Accuracy: {val_acc}, Validation Off by One: {val_off_by_one_acc}")
+        model.train()
         
+        train_loss = 0.0
         for i, (x, y, _) in enumerate(train_dataloader):
             optimizer.zero_grad()
             y_pred = model(x)
             loss = criterion(y_pred, y)
+            train_loss += loss.item() * len(y)
             loss.backward()
             optimizer.step()
+        train_loss /= len(train_dataset)
+        train_losses.append(train_loss)
+        print(f"Epoch {epoch}, Train Loss: {train_loss}")
 
-        print(f"Epoch {epoch}, Train Loss: {loss.item()}")
+    # Plot train and validation loss across epochs
+    plt.figure(figsize=(8, 5))
+    plt.plot(train_losses, label="Train Loss", color="C0")
+    plt.plot(val_losses, label="Validation Loss", color="C1")
+    plt.xlabel("Epoch")
+    plt.ylabel("Loss (MSE)")
+    plt.title("Train vs Validation Loss")
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.savefig("data/train_val_loss.png", dpi=150)
+    plt.close()
+    print("Saved loss plot to data/train_val_loss.png")
 
+    # Plot validation accuracy and off by one accuracy across epochs
+    plt.figure(figsize=(8, 5))
+    plt.plot(val_accs, label="Validation Accuracy", color="C0")
+    plt.plot(val_off_by_ones, label="Validation Off by One Accuracy", color="C1")
+    plt.xlabel("Epoch")
+    plt.ylabel("Accuracy")
+    plt.title("Validation Accuracy and Off by One Accuracy")
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.savefig("data/val_acc_off_by_one.png", dpi=150)
+    plt.close()
+    print("Saved accuracy plot to data/val_acc_off_by_one.png")
+    
     model.eval()
     with torch.no_grad():
         got_right = 0
         test_loss = 0.0
+        test_off_by_ones = 0
         for x, y, stars in test_dataloader:
             y_pred = model(x)
             y_logits = torch.round(y_pred * 9) + 1
             got_right += (y_logits == stars).sum().item()
+            test_off_by_ones += ((y_logits - stars).abs() == 1).sum().item()
             loss = criterion(y_pred, y)
             test_loss += loss.item() * len(y)
         test_loss /= len(test_dataset)
         test_acc = got_right / len(test_dataset)
-        print(f"Test Loss: {test_loss}, Test Accuracy: {test_acc}")
+        test_off_by_one_acc = (got_right + test_off_by_ones) / len(test_dataset)
+        print(f"Test Loss: {test_loss}, Test Accuracy: {test_acc}, Test Off by One: {test_off_by_one_acc}")
 
 if __name__ == "__main__":
     torch.manual_seed(42)
