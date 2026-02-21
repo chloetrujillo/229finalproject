@@ -5,6 +5,8 @@ import pandas as pd
 from torch.utils.data import Dataset, DataLoader
 import numpy as np
 import matplotlib.pyplot as plt
+from argparse import ArgumentParser
+import seaborn as sns
 
 class GeometryDashDataset(Dataset):
     def __init__(self, df):
@@ -34,7 +36,7 @@ class MLPRegression(nn.Module):
         x = self.sigmoid(x)
         return x
 
-def main():
+def main(args):
     train_df = pd.read_csv("data/train.csv")
     val_df = pd.read_csv("data/val.csv")
     test_df = pd.read_csv("data/test.csv")
@@ -67,7 +69,7 @@ def main():
     val_processed["x_range"] = (np.log(val_df["x_max"] - val_df["x_min"] + 1) - mu) / std
     test_processed["x_range"] = (np.log(test_df["x_max"] - test_df["x_min"] + 1) - mu) / std
 
-    # y_min, y_max -> calculate range then z-score
+    # y_min, y_max -> linearly normalize to [0, 1]
     range_val = train_df["y_max"] - train_df["y_min"]
     range_min = range_val.min()
     range_max = range_val.max()
@@ -91,6 +93,62 @@ def main():
 
     # Simple 2-layer MLP regression model
     model = MLPRegression(hidden_size=16)
+    if args.load_model:
+        model.load_state_dict(torch.load("models/preliminary_regression_model.pth"))
+        print("Loaded model checkpoint from models/preliminary_regression_model.pth")
+        # Do error analysis on validation set and test set
+        # Plot x axis as ground truth stars and y axis as predicted stars
+        test_stars = []
+        test_stars_pred = []
+        for x, y, stars in test_dataloader:
+            y_pred = model(x)
+            y_logits = y_pred * 9 + 1
+            for i in range(len(stars)):
+                test_stars.append(stars[i].item())
+                test_stars_pred.append(y_logits[i].item())
+        plt.figure(figsize=(6, 4))
+        sns.stripplot(x=test_stars, y=test_stars_pred, color="steelblue", 
+              alpha=0.3, jitter=0.05, size=4)
+        sns.pointplot(x=test_stars, y=test_stars_pred, color="darkred", 
+              estimator=np.mean, errorbar="sd", capsize=.05, 
+              markers="D", linestyles="--", label="Mean ± StdDev")
+        plt.plot([0, 9], [1, 10], color='black', linestyle=':', alpha=0.6, label="Ideal Prediction")
+        plt.xlabel("Ground Truth Stars")
+        plt.ylabel("Predicted Stars")
+        plt.title("Test Set Error Analysis")
+        plt.xticks(ticks=range(10), labels=range(1, 11))
+        plt.legend()
+        plt.savefig("data/error_analysis.png", dpi=150)
+        plt.close()
+        print("Saved error analysis plot to data/error_analysis.png")
+
+        val_stars = []
+        val_stars_pred = []
+        for x, y, stars in val_dataloader:
+            y_pred = model(x)
+            y_logits = y_pred * 9 + 1
+            for i in range(len(stars)):
+                val_stars.append(stars[i].item())
+                val_stars_pred.append(y_logits[i].item())
+        plt.figure(figsize=(6, 4))
+        sns.stripplot(x=val_stars, y=val_stars_pred, color="steelblue", 
+              alpha=0.3, jitter=0.05, size=4)
+        sns.pointplot(x=val_stars, y=val_stars_pred, color="darkred", 
+              estimator=np.mean, errorbar="sd", capsize=.05, 
+              markers="D", linestyles="--", label="Mean ± StdDev")
+        plt.plot([0, 9], [1, 10], color='black', linestyle=':', alpha=0.6, label="Ideal Prediction")
+        plt.xlabel("Ground Truth Stars")
+        plt.ylabel("Predicted Stars")
+        plt.title("Validation Set Error Analysis")
+        plt.xticks(ticks=range(10), labels=range(1, 11))
+        plt.legend()
+        plt.savefig("data/val_error_analysis.png", dpi=150)
+        plt.close()
+        print("Saved validation error analysis plot to data/val_error_analysis.png")
+        return
+
+    else:
+        print("No model checkpoint found, training from scratch")
     criterion = nn.MSELoss()
     optimizer = torch.optim.Adam(model.parameters(), weight_decay=1e-4, lr=3e-5)
     
@@ -179,7 +237,30 @@ def main():
         test_off_by_one_acc = (got_right + test_off_by_ones) / len(test_dataset)
         print(f"Test Loss: {test_loss}, Test Accuracy: {test_acc}, Test Off by One: {test_off_by_one_acc}")
 
+        got_right = 0
+        val_loss = 0.0
+        val_off_by_ones = 0
+        for x, y, stars in val_dataloader:
+            y_pred = model(x)
+            y_logits = torch.round(y_pred * 9) + 1
+            got_right += (y_logits == stars).sum().item()
+            val_off_by_ones += ((y_logits - stars).abs() == 1).sum().item()
+            loss = criterion(y_pred, y)
+            val_loss += loss.item() * len(y)
+        val_loss /= len(val_dataset)
+        val_acc = got_right / len(val_dataset)
+        val_off_by_one_acc = (got_right + val_off_by_ones) / len(val_dataset)
+        print(f"Validation Loss: {val_loss}, Validation Accuracy: {val_acc}, Validation Off by One: {val_off_by_one_acc}")
+
+    # Save model checkpoint
+    torch.save(model.state_dict(), "models/preliminary_regression_model.pth")
+    print("Saved model checkpoint to models/preliminary_regression_model.pth")
+
 if __name__ == "__main__":
     torch.manual_seed(42)
     np.random.seed(42)
-    main()
+
+    parser = ArgumentParser()
+    parser.add_argument("--load_model", action="store_true", default=False)
+    args = parser.parse_args()
+    main(args)
