@@ -66,6 +66,8 @@ def main(args):
         log_val = np.log(train_processed[col] + 1)
         mu = log_val.mean()
         std = log_val.std()
+        if std == 0 or not np.isfinite(std):
+            std = 1.0  # avoid div by zero / Inf in z-score
         train_processed[col] = (log_val - mu) / std
         val_processed[col] = (np.log(val_processed[col] + 1) - mu) / std
         test_processed[col] = (np.log(test_processed[col] + 1) - mu) / std
