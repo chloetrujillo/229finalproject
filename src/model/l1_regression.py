@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import os
+import json
 import pandas as pd
 from torch.utils.data import Dataset, DataLoader
 import numpy as np
@@ -22,14 +23,13 @@ class GeometryDashDataset(Dataset):
         return torch.from_numpy(self.x[idx]), torch.from_numpy(self.y[idx]), torch.tensor([self.stars[idx]])
 
 class MLPRegression(nn.Module):
-    # Input size -> obj_count, trigger_count, portal_count, x_range, y_range -> 5
-    def __init__(self, hidden_size):
+    def __init__(self, input_size, hidden_size):
         super(MLPRegression, self).__init__()
-        self.fc1 = nn.Linear(5, hidden_size)
+        self.fc1 = nn.Linear(input_size, hidden_size)
         self.relu = nn.ReLU()
         self.fc2 = nn.Linear(hidden_size, 1)
         self.sigmoid = nn.Sigmoid()
-    
+
     def forward(self, x):
         x = torch.relu(self.fc1(x))
         x = self.fc2(x)
@@ -77,6 +77,9 @@ def main(args):
     val_processed["stars"] = val_df["stars"]
     test_processed["stars"] = test_df["stars"]
 
+    feature_cols = [c for c in train_processed.columns if c not in ("y", "stars")]
+    n_features = len(feature_cols)
+
     train_dataset = GeometryDashDataset(train_processed)
     val_dataset = GeometryDashDataset(val_processed)
     test_dataset = GeometryDashDataset(test_processed)
@@ -84,11 +87,20 @@ def main(args):
     val_dataloader = DataLoader(val_dataset, batch_size=8, shuffle=False)
     test_dataloader = DataLoader(test_dataset, batch_size=8, shuffle=False)
 
-    # Simple 2-layer MLP regression model
-    model = MLPRegression(hidden_size=16)
+    # L1 regression: use L1 on first-layer weights to select ~20-30 strongest features
+    L1_LAMBDA = 1e-3
+    N_SELECT = 25
+
+    model = MLPRegression(input_size=n_features, hidden_size=128)
     if args.load_model:
-        model.load_state_dict(torch.load("models/preliminary_regression_model.pth"))
-        print("Loaded model checkpoint from models/preliminary_regression_model.pth")
+        model.load_state_dict(torch.load("models/v2_regression_model.pth"))
+        print("Loaded model checkpoint from models/v2_regression_model.pth")
+        test_sel = test_processed[selected_cols + ["y", "stars"]].copy()
+        val_sel = val_processed[selected_cols + ["y", "stars"]].copy()
+        test_dataset_sel = GeometryDashDataset(test_sel)
+        val_dataset_sel = GeometryDashDataset(val_sel)
+        test_dataloader = DataLoader(test_dataset_sel, batch_size=8, shuffle=False)
+        val_dataloader = DataLoader(val_dataset_sel, batch_size=8, shuffle=False)
         # Do error analysis on validation set and test set
         # Plot x axis as ground truth stars and y axis as predicted stars
         test_stars = []
@@ -111,9 +123,9 @@ def main(args):
         plt.title("Test Set Error Analysis")
         plt.xticks(ticks=range(10), labels=range(1, 11))
         plt.legend()
-        plt.savefig("data/error_analysis.png", dpi=150)
+        plt.savefig("data_v2/error_analysis.png", dpi=150)
         plt.close()
-        print("Saved error analysis plot to data/error_analysis.png")
+        print("Saved error analysis plot to data_v2/error_analysis.png")
 
         val_stars = []
         val_stars_pred = []
@@ -135,15 +147,15 @@ def main(args):
         plt.title("Validation Set Error Analysis")
         plt.xticks(ticks=range(10), labels=range(1, 11))
         plt.legend()
-        plt.savefig("data/val_error_analysis.png", dpi=150)
+        plt.savefig("data_v2/val_error_analysis.png", dpi=150)
         plt.close()
-        print("Saved validation error analysis plot to data/val_error_analysis.png")
+        print("Saved validation error analysis plot to data_v2/val_error_analysis.png")
         return
 
     else:
         print("No model checkpoint found, training from scratch")
     criterion = nn.MSELoss()
-    optimizer = torch.optim.Adam(model.parameters(), weight_decay=1e-4, lr=3e-5)
+    optimizer = torch.optim.Adam(model.parameters(), weight_decay=0, lr=3e-5)
     
     train_losses =[]
     val_losses = []
@@ -177,13 +189,57 @@ def main(args):
         for i, (x, y, _) in enumerate(train_dataloader):
             optimizer.zero_grad()
             y_pred = model(x)
-            loss = criterion(y_pred, y)
+            loss = criterion(y_pred, y) + L1_LAMBDA * model.fc1.weight.abs().sum()
             train_loss += loss.item() * len(y)
             loss.backward()
             optimizer.step()
         train_loss /= len(train_dataset)
         train_losses.append(train_loss)
         print(f"Epoch {epoch}, Train Loss: {train_loss}")
+
+    # L1 feature selection: keep only strongest N_SELECT features by |fc1 weight|
+    with torch.no_grad():
+        importance = model.fc1.weight.abs().sum(dim=0)
+        _, selected_idx = torch.topk(importance, min(N_SELECT, n_features))
+        selected_idx = selected_idx.cpu().numpy()
+    selected_cols = [feature_cols[i] for i in selected_idx]
+    print(f"Selected {len(selected_cols)} features (L1): {selected_cols[:10]}...")
+
+    # Retrain on selected features only
+    train_sel = train_processed[selected_cols + ["y", "stars"]].copy()
+    val_sel = val_processed[selected_cols + ["y", "stars"]].copy()
+    test_sel = test_processed[selected_cols + ["y", "stars"]].copy()
+    train_dataset_sel = GeometryDashDataset(train_sel)
+    val_dataset_sel = GeometryDashDataset(val_sel)
+    test_dataset_sel = GeometryDashDataset(test_sel)
+    train_dl_sel = DataLoader(train_dataset_sel, batch_size=8, shuffle=True)
+    val_dl_sel = DataLoader(val_dataset_sel, batch_size=8, shuffle=False)
+    test_dl_sel = DataLoader(test_dataset_sel, batch_size=8, shuffle=False)
+
+    model = MLPRegression(input_size=len(selected_cols), hidden_size=128)
+    optimizer = torch.optim.Adam(model.parameters(), lr=3e-5)
+    for epoch in range(100):
+        model.eval()
+        with torch.no_grad():
+            got_right = 0
+            val_loss = 0.0
+            off_by_one = 0
+            for x, y, stars in val_dl_sel:
+                y_pred = model(x)
+                y_logits = torch.round(y_pred * 9) + 1
+                got_right += (y_logits == stars).sum().item()
+                off_by_one += ((y_logits - stars).abs() == 1).sum().item()
+                loss = criterion(y_pred, y)
+                val_loss += loss.item() * len(y)
+            val_loss /= len(val_dataset_sel)
+            val_acc = got_right / len(val_dataset_sel)
+            print(f"[Selected features] Epoch {epoch}, Val Loss: {val_loss}, Val Acc: {val_acc}")
+        model.train()
+        for x, y, _ in train_dl_sel:
+            optimizer.zero_grad()
+            loss = criterion(model(x), y)
+            loss.backward()
+            optimizer.step()
 
     # Plot train and validation loss across epochs
     plt.figure(figsize=(8, 5))
@@ -195,9 +251,9 @@ def main(args):
     plt.legend()
     plt.grid(True, alpha=0.3)
     plt.tight_layout()
-    plt.savefig("data/train_val_loss.png", dpi=150)
+    plt.savefig("data_v2/train_val_loss.png", dpi=150)
     plt.close()
-    print("Saved loss plot to data/train_val_loss.png")
+    print("Saved loss plot to data_v2/train_val_loss.png")
 
     # Plot validation accuracy and off by one accuracy across epochs
     plt.figure(figsize=(8, 5))
@@ -209,45 +265,48 @@ def main(args):
     plt.legend()
     plt.grid(True, alpha=0.3)
     plt.tight_layout()
-    plt.savefig("data/val_acc_off_by_one.png", dpi=150)
+    plt.savefig("data_v2/val_acc_off_by_one.png", dpi=150)
     plt.close()
-    print("Saved accuracy plot to data/val_acc_off_by_one.png")
+    print("Saved accuracy plot to data_v2/val_acc_off_by_one.png")
     
     model.eval()
     with torch.no_grad():
         got_right = 0
         test_loss = 0.0
         test_off_by_ones = 0
-        for x, y, stars in test_dataloader:
+        for x, y, stars in test_dl_sel:
             y_pred = model(x)
             y_logits = torch.round(y_pred * 9) + 1
             got_right += (y_logits == stars).sum().item()
             test_off_by_ones += ((y_logits - stars).abs() == 1).sum().item()
             loss = criterion(y_pred, y)
             test_loss += loss.item() * len(y)
-        test_loss /= len(test_dataset)
-        test_acc = got_right / len(test_dataset)
-        test_off_by_one_acc = (got_right + test_off_by_ones) / len(test_dataset)
+        test_loss /= len(test_dataset_sel)
+        test_acc = got_right / len(test_dataset_sel)
+        test_off_by_one_acc = (got_right + test_off_by_ones) / len(test_dataset_sel)
         print(f"Test Loss: {test_loss}, Test Accuracy: {test_acc}, Test Off by One: {test_off_by_one_acc}")
 
         got_right = 0
         val_loss = 0.0
         val_off_by_ones = 0
-        for x, y, stars in val_dataloader:
+        for x, y, stars in val_dl_sel:
             y_pred = model(x)
             y_logits = torch.round(y_pred * 9) + 1
             got_right += (y_logits == stars).sum().item()
             val_off_by_ones += ((y_logits - stars).abs() == 1).sum().item()
             loss = criterion(y_pred, y)
             val_loss += loss.item() * len(y)
-        val_loss /= len(val_dataset)
-        val_acc = got_right / len(val_dataset)
-        val_off_by_one_acc = (got_right + val_off_by_ones) / len(val_dataset)
+        val_loss /= len(val_dataset_sel)
+        val_acc = got_right / len(val_dataset_sel)
+        val_off_by_one_acc = (got_right + val_off_by_ones) / len(val_dataset_sel)
         print(f"Validation Loss: {val_loss}, Validation Accuracy: {val_acc}, Validation Off by One: {val_off_by_one_acc}")
 
-    # Save model checkpoint
-    torch.save(model.state_dict(), "models/preliminary_regression_model.pth")
-    print("Saved model checkpoint to models/preliminary_regression_model.pth")
+    # Save model checkpoint (trained on selected features only)
+    os.makedirs("models", exist_ok=True)
+    torch.save(model.state_dict(), "models/v2_regression_model.pth")
+    with open("models/v2_regression_selected_cols.json", "w") as f:
+        json.dump(selected_cols, f)
+    print("Saved model checkpoint to models/v2_regression_model.pth")
 
 if __name__ == "__main__":
     torch.manual_seed(42)
