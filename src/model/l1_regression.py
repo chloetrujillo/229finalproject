@@ -36,6 +36,91 @@ class MLPRegression(nn.Module):
         x = self.sigmoid(x)
         return x
 
+def evaluate(model, val_dataset_sel, test_dataset_sel, val_dl_sel, test_dl_sel, criterion):
+    model.eval()
+    with torch.no_grad():
+        got_right = 0
+        test_loss = 0.0
+        test_off_by_ones = 0
+        for x, y, stars in test_dl_sel:
+            y_pred = model(x)
+            y_logits = torch.round(y_pred * 9) + 1
+            got_right += (y_logits == stars).sum().item()
+            test_off_by_ones += ((y_logits - stars).abs() == 1).sum().item()
+            loss = criterion(y_pred, y)
+            test_loss += loss.item() * len(y)
+        test_loss /= len(test_dataset_sel)
+        test_acc = got_right / len(test_dataset_sel)
+        test_off_by_one_acc = (got_right + test_off_by_ones) / len(test_dataset_sel)
+        print(f"Test Loss: {test_loss}, Test Accuracy: {test_acc}, Test Off by One: {test_off_by_one_acc}")
+
+        got_right = 0
+        val_loss = 0.0
+        val_off_by_ones = 0
+        for x, y, stars in val_dl_sel:
+            y_pred = model(x)
+            y_logits = torch.round(y_pred * 9) + 1
+            got_right += (y_logits == stars).sum().item()
+            val_off_by_ones += ((y_logits - stars).abs() == 1).sum().item()
+            loss = criterion(y_pred, y)
+            val_loss += loss.item() * len(y)
+        val_loss /= len(val_dataset_sel)
+        val_acc = got_right / len(val_dataset_sel)
+        val_off_by_one_acc = (got_right + val_off_by_ones) / len(val_dataset_sel)
+        print(f"Validation Loss: {val_loss}, Validation Accuracy: {val_acc}, Validation Off by One: {val_off_by_one_acc}")
+
+def analyze(model, val_dataloader, test_dataloader):
+    # Do error analysis on validation set and test set
+    # Plot x axis as ground truth stars and y axis as predicted stars
+    test_stars = []
+    test_stars_pred = []
+    for x, y, stars in test_dataloader:
+        y_pred = model(x)
+        y_logits = y_pred * 9 + 1
+        for i in range(len(stars)):
+            test_stars.append(stars[i].item())
+            test_stars_pred.append(y_logits[i].item())
+    plt.figure(figsize=(6, 4))
+    sns.stripplot(x=test_stars, y=test_stars_pred, color="steelblue", 
+            alpha=0.3, jitter=0.05, size=4)
+    sns.pointplot(x=test_stars, y=test_stars_pred, color="darkred", 
+            estimator=np.mean, errorbar="sd", capsize=.05, 
+            markers="D", linestyles="--", label="Mean ± StdDev")
+    plt.plot([0, 9], [1, 10], color='black', linestyle=':', alpha=0.6, label="Ideal Prediction")
+    plt.xlabel("Ground Truth Stars")
+    plt.ylabel("Predicted Stars")
+    plt.title("Test Set Error Analysis")
+    plt.xticks(ticks=range(10), labels=range(1, 11))
+    plt.legend()
+    plt.savefig("data_v2/error_analysis.png", dpi=150)
+    plt.close()
+    print("Saved error analysis plot to data_v2/error_analysis.png")
+
+    val_stars = []
+    val_stars_pred = []
+    for x, y, stars in val_dataloader:
+        y_pred = model(x)
+        y_logits = y_pred * 9 + 1
+        for i in range(len(stars)):
+            val_stars.append(stars[i].item())
+            val_stars_pred.append(y_logits[i].item())
+    plt.figure(figsize=(6, 4))
+    sns.stripplot(x=val_stars, y=val_stars_pred, color="steelblue", 
+            alpha=0.3, jitter=0.05, size=4)
+    sns.pointplot(x=val_stars, y=val_stars_pred, color="darkred", 
+            estimator=np.mean, errorbar="sd", capsize=.05, 
+            markers="D", linestyles="--", label="Mean ± StdDev")
+    plt.plot([0, 9], [1, 10], color='black', linestyle=':', alpha=0.6, label="Ideal Prediction")
+    plt.xlabel("Ground Truth Stars")
+    plt.ylabel("Predicted Stars")
+    plt.title("Validation Set Error Analysis")
+    plt.xticks(ticks=range(10), labels=range(1, 11))
+    plt.legend()
+    plt.savefig("data_v2/val_error_analysis.png", dpi=150)
+    plt.close()
+    print("Saved validation error analysis plot to data_v2/val_error_analysis.png")
+
+
 def main(args):
     train_df = pd.read_csv("data_v2/train.csv")
     val_df = pd.read_csv("data_v2/val.csv")
@@ -95,63 +180,22 @@ def main(args):
 
     model = MLPRegression(input_size=n_features, hidden_size=128)
     if args.load_model:
+        with open("models/v2_regression_selected_cols.json", "r") as f:
+            selected_cols = json.load(f)
+        num_features = len(selected_cols)
+        model = MLPRegression(input_size=num_features, hidden_size=128)
         model.load_state_dict(torch.load("models/v2_regression_model.pth"))
         print("Loaded model checkpoint from models/v2_regression_model.pth")
+        
         test_sel = test_processed[selected_cols + ["y", "stars"]].copy()
         val_sel = val_processed[selected_cols + ["y", "stars"]].copy()
         test_dataset_sel = GeometryDashDataset(test_sel)
         val_dataset_sel = GeometryDashDataset(val_sel)
-        test_dataloader = DataLoader(test_dataset_sel, batch_size=8, shuffle=False)
-        val_dataloader = DataLoader(val_dataset_sel, batch_size=8, shuffle=False)
-        # Do error analysis on validation set and test set
-        # Plot x axis as ground truth stars and y axis as predicted stars
-        test_stars = []
-        test_stars_pred = []
-        for x, y, stars in test_dataloader:
-            y_pred = model(x)
-            y_logits = y_pred * 9 + 1
-            for i in range(len(stars)):
-                test_stars.append(stars[i].item())
-                test_stars_pred.append(y_logits[i].item())
-        plt.figure(figsize=(6, 4))
-        sns.stripplot(x=test_stars, y=test_stars_pred, color="steelblue", 
-              alpha=0.3, jitter=0.05, size=4)
-        sns.pointplot(x=test_stars, y=test_stars_pred, color="darkred", 
-              estimator=np.mean, errorbar="sd", capsize=.05, 
-              markers="D", linestyles="--", label="Mean ± StdDev")
-        plt.plot([0, 9], [1, 10], color='black', linestyle=':', alpha=0.6, label="Ideal Prediction")
-        plt.xlabel("Ground Truth Stars")
-        plt.ylabel("Predicted Stars")
-        plt.title("Test Set Error Analysis")
-        plt.xticks(ticks=range(10), labels=range(1, 11))
-        plt.legend()
-        plt.savefig("data_v2/error_analysis.png", dpi=150)
-        plt.close()
-        print("Saved error analysis plot to data_v2/error_analysis.png")
-
-        val_stars = []
-        val_stars_pred = []
-        for x, y, stars in val_dataloader:
-            y_pred = model(x)
-            y_logits = y_pred * 9 + 1
-            for i in range(len(stars)):
-                val_stars.append(stars[i].item())
-                val_stars_pred.append(y_logits[i].item())
-        plt.figure(figsize=(6, 4))
-        sns.stripplot(x=val_stars, y=val_stars_pred, color="steelblue", 
-              alpha=0.3, jitter=0.05, size=4)
-        sns.pointplot(x=val_stars, y=val_stars_pred, color="darkred", 
-              estimator=np.mean, errorbar="sd", capsize=.05, 
-              markers="D", linestyles="--", label="Mean ± StdDev")
-        plt.plot([0, 9], [1, 10], color='black', linestyle=':', alpha=0.6, label="Ideal Prediction")
-        plt.xlabel("Ground Truth Stars")
-        plt.ylabel("Predicted Stars")
-        plt.title("Validation Set Error Analysis")
-        plt.xticks(ticks=range(10), labels=range(1, 11))
-        plt.legend()
-        plt.savefig("data_v2/val_error_analysis.png", dpi=150)
-        plt.close()
-        print("Saved validation error analysis plot to data_v2/val_error_analysis.png")
+        test_dl_sel = DataLoader(test_dataset_sel, batch_size=8, shuffle=False)
+        val_dl_sel = DataLoader(val_dataset_sel, batch_size=8, shuffle=False)
+        
+        evaluate(model, val_dataset_sel, test_dataset_sel, val_dl_sel, test_dl_sel, nn.MSELoss())
+        analyze(model, val_dl_sel, test_dl_sel)
         return
 
     else:
@@ -271,37 +315,7 @@ def main(args):
     plt.close()
     print("Saved accuracy plot to data_v2/val_acc_off_by_one.png")
     
-    model.eval()
-    with torch.no_grad():
-        got_right = 0
-        test_loss = 0.0
-        test_off_by_ones = 0
-        for x, y, stars in test_dl_sel:
-            y_pred = model(x)
-            y_logits = torch.round(y_pred * 9) + 1
-            got_right += (y_logits == stars).sum().item()
-            test_off_by_ones += ((y_logits - stars).abs() == 1).sum().item()
-            loss = criterion(y_pred, y)
-            test_loss += loss.item() * len(y)
-        test_loss /= len(test_dataset_sel)
-        test_acc = got_right / len(test_dataset_sel)
-        test_off_by_one_acc = (got_right + test_off_by_ones) / len(test_dataset_sel)
-        print(f"Test Loss: {test_loss}, Test Accuracy: {test_acc}, Test Off by One: {test_off_by_one_acc}")
-
-        got_right = 0
-        val_loss = 0.0
-        val_off_by_ones = 0
-        for x, y, stars in val_dl_sel:
-            y_pred = model(x)
-            y_logits = torch.round(y_pred * 9) + 1
-            got_right += (y_logits == stars).sum().item()
-            val_off_by_ones += ((y_logits - stars).abs() == 1).sum().item()
-            loss = criterion(y_pred, y)
-            val_loss += loss.item() * len(y)
-        val_loss /= len(val_dataset_sel)
-        val_acc = got_right / len(val_dataset_sel)
-        val_off_by_one_acc = (got_right + val_off_by_ones) / len(val_dataset_sel)
-        print(f"Validation Loss: {val_loss}, Validation Accuracy: {val_acc}, Validation Off by One: {val_off_by_one_acc}")
+    evaluate(model, val_dataset_sel, test_dataset_sel, val_dl_sel, test_dl_sel, criterion)
 
     # Save model checkpoint (trained on selected features only)
     os.makedirs("models", exist_ok=True)
