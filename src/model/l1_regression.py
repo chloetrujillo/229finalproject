@@ -92,7 +92,7 @@ def analyze(model, val_dataloader, test_dataloader):
     plt.title("Test Set Error Analysis")
     plt.xticks(ticks=range(10), labels=range(1, 11))
     plt.legend()
-    plt.savefig("data_v2/error_analysis.png", dpi=150)
+    plt.savefig(f"{out_dir}/error_analysis.png", dpi=150)
     plt.close()
     print("Saved error analysis plot to data_v2/error_analysis.png")
 
@@ -116,15 +116,16 @@ def analyze(model, val_dataloader, test_dataloader):
     plt.title("Validation Set Error Analysis")
     plt.xticks(ticks=range(10), labels=range(1, 11))
     plt.legend()
-    plt.savefig("data_v2/val_error_analysis.png", dpi=150)
+    plt.savefig(f"{out_dir}/val_error_analysis.png", dpi=150)
     plt.close()
     print("Saved validation error analysis plot to data_v2/val_error_analysis.png")
 
 
 def main(args):
-    train_df = pd.read_csv("data_v2/train.csv")
-    val_df = pd.read_csv("data_v2/val.csv")
-    test_df = pd.read_csv("data_v2/test.csv")
+    out_dir = "data_v2"
+    train_df = pd.read_csv(f"{out_dir}/train.csv")
+    val_df = pd.read_csv(f"{out_dir}/val.csv")
+    test_df = pd.read_csv(f"{out_dir}/test.csv")
 
     train_df = train_df.drop(columns=["id"])
     val_df = val_df.drop(columns=["id"])
@@ -297,7 +298,7 @@ def main(args):
     plt.legend()
     plt.grid(True, alpha=0.3)
     plt.tight_layout()
-    plt.savefig("data_v2/train_val_loss.png", dpi=150)
+    plt.savefig(f"{out_dir}/train_val_loss.png", dpi=150)
     plt.close()
     print("Saved loss plot to data_v2/train_val_loss.png")
 
@@ -311,7 +312,7 @@ def main(args):
     plt.legend()
     plt.grid(True, alpha=0.3)
     plt.tight_layout()
-    plt.savefig("data_v2/val_acc_off_by_one.png", dpi=150)
+    plt.savefig(f"{out_dir}/val_acc_off_by_one.png", dpi=150)
     plt.close()
     print("Saved accuracy plot to data_v2/val_acc_off_by_one.png")
     
