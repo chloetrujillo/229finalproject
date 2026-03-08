@@ -6,7 +6,8 @@ import pandas as pd
 from sklearn.model_selection import train_test_split
 from tqdm import tqdm
 
-N_SLICES = 10
+N_X = 100
+N_Y = 20
 
 
 def process_level_data(data_file, metadata_file):
@@ -24,36 +25,31 @@ def process_level_data(data_file, metadata_file):
         return False
 
     xs = [obj["x"] for obj in objs if obj.get("x") is not None]
-    if not xs:
+    ys = [obj["y"] for obj in objs if obj.get("y") is not None]
+    if not xs or not ys:
         return False
-    x_min, x_max = min(xs), max(xs)
-    x_range = x_max - x_min
 
-    slice_counts = [0] * N_SLICES
-    slice_ys = [[] for _ in range(N_SLICES)]
+    x_min, x_max = min(xs), max(xs)
+    y_min, y_max = min(ys), max(ys)
+    x_range = x_max - x_min
+    y_range = y_max - y_min
+
+    grid = [[0] * N_Y for _ in range(N_X)]
 
     for obj in objs:
         x = obj.get("x")
         y = obj.get("y")
-        if x is None:
+        if x is None or y is None:
             continue
 
-        if x_range == 0:
-            slice_idx = 0
-        else:
-            x_norm = (x - x_min) / x_range
-            slice_idx = min(int(x_norm * N_SLICES), N_SLICES - 1)
-
-        slice_counts[slice_idx] += 1
-        if y is not None:
-            slice_ys[slice_idx].append(y)
+        xi = min(int((x - x_min) / x_range * N_X), N_X - 1) if x_range > 0 else 0
+        yi = min(int((y - y_min) / y_range * N_Y), N_Y - 1) if y_range > 0 else 0
+        grid[xi][yi] += 1
 
     result = {"id": level_id, "stars": stars, "length": len(objs)}
-
-    for s in range(N_SLICES):
-        result[f"density_s{s}"] = slice_counts[s]
-        ys = slice_ys[s]
-        result[f"yspread_s{s}"] = max(ys) - min(ys) if len(ys) > 1 else 0.0
+    for xi in range(N_X):
+        for yi in range(N_Y):
+            result[f"grid_x{xi}_y{yi}"] = grid[xi][yi]
 
     return result
 

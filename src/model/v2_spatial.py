@@ -3,13 +3,13 @@
 import torch
 import torch.nn as nn
 import os
-import json
 import pandas as pd
 from torch.utils.data import Dataset, DataLoader
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 from argparse import ArgumentParser
+import json
 
 
 class GeometryDashDataset(Dataset):
@@ -39,9 +39,52 @@ class MLPRegression(nn.Module):
         x = self.sigmoid(x)
         return x
 
+N_X, N_Y = 100, 20
 
-def evaluate(model, val_dataset, test_dataset, val_dl, test_dl, criterion):
+class GeometryDashCNNDataset(Dataset):
+    def __init__(self, df):
+        # Extract grid columns in dataset order: x0y0..y9, x1y0..y9, ...
+        grid_cols = [f"grid_x{xi}_y{yi}" for xi in range(N_X) for yi in range(N_Y)]
+        grid_vals = df[grid_cols].values.astype(np.float32)  # (N, 200)
+        # Reshape to (N, N_X, N_Y) then transpose to (N, N_Y, N_X) = (N, H=10, W=20)
+        # Add channel dim: (N, 1, 10, 20)
+        self.x = grid_vals.reshape(-1, N_X, N_Y).transpose(0, 2, 1)[:, np.newaxis, :, :]
+        self.y = df['y'].values.astype(np.float32).reshape(-1, 1)
+        self.stars = df['stars'].values.astype(np.int32)
+
+    def __len__(self):
+        return len(self.y)
+
+    def __getitem__(self, idx):
+        return torch.from_numpy(self.x[idx]), torch.from_numpy(self.y[idx]), torch.tensor([self.stars[idx]])
+
+
+class CNNRegression(nn.Module):
+    # Input: (batch, 1, H=20, W=100)
+    # After conv1 + pool: (batch, 16, 10, 50)
+    # After conv2 + pool: (batch, 32, 5, 25)
+    # Flattened: 32 * 5 * 25 = 4000
+    def __init__(self, hidden_size):
+        super(CNNRegression, self).__init__()
+        self.conv1 = nn.Conv2d(1, 16, kernel_size=5, padding=2)
+        self.conv2 = nn.Conv2d(16, 32, kernel_size=5, padding=2)
+        self.pool = nn.MaxPool2d(2)
+        self.fc1 = nn.Linear(32 * 5 * 25, hidden_size)
+        self.fc2 = nn.Linear(hidden_size, 1)
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, x):
+        x = self.pool(torch.relu(self.conv1(x)))
+        x = self.pool(torch.relu(self.conv2(x)))
+        x = x.view(x.size(0), -1)
+        x = torch.relu(self.fc1(x))
+        x = self.sigmoid(self.fc2(x))
+        return x
+
+
+def evaluate(model, val_dataset, test_dataset, val_dl, test_dl, criterion, save_path):
     model.eval()
+    results = {}
     with torch.no_grad():
         got_right = 0
         test_loss = 0.0
@@ -57,6 +100,9 @@ def evaluate(model, val_dataset, test_dataset, val_dl, test_dl, criterion):
         test_acc = got_right / len(test_dataset)
         test_off_by_one_acc = (got_right + test_off_by_ones) / len(test_dataset)
         print(f"Test Loss: {test_loss}, Test Accuracy: {test_acc}, Test Off by One: {test_off_by_one_acc}")
+        results["test_loss"] = test_loss
+        results["test_acc"] = test_acc
+        results["test_off_by_one_acc"] = test_off_by_one_acc
 
         got_right = 0
         val_loss = 0.0
@@ -72,10 +118,17 @@ def evaluate(model, val_dataset, test_dataset, val_dl, test_dl, criterion):
         val_acc = got_right / len(val_dataset)
         val_off_by_one_acc = (got_right + val_off_by_ones) / len(val_dataset)
         print(f"Validation Loss: {val_loss}, Validation Accuracy: {val_acc}, Validation Off by One: {val_off_by_one_acc}")
+        results["val_loss"] = val_loss
+        results["val_acc"] = val_acc
+        results["val_off_by_one_acc"] = val_off_by_one_acc
+        with open(save_path, "w") as f:
+            json.dump(results, f)
 
+    return results
 
-def analyze(model, val_dl, test_dl, out_dir):
-    for split, dl, fname in [("Test", test_dl, "error_analysis.png"), ("Validation", val_dl, "val_error_analysis.png")]:
+def analyze(model, val_dl, test_dl, cnn, out_dir):
+    header = "cnn" if cnn else "mlp"
+    for split, dl, fname in [("Test", test_dl, f"{header}_error_analysis.png"), ("Validation", val_dl, f"{header}_val_error_analysis.png")]:
         stars_true, stars_pred = [], []
         for x, y, stars in dl:
             y_pred = model(x)
@@ -105,14 +158,14 @@ def normalize(train_df, val_df, test_df):
     val_proc = pd.DataFrame()
     test_proc = pd.DataFrame()
 
-    # density_s{n}: normalize by total length, then log(x+1), then z-score
+    # grid_x{i}_y{j}: normalize by total length, then log(x+1), then z-score
     for col in train_df.columns:
-        if col.startswith("density_s"):
+        if col.startswith("grid_"):
             train_proc[col] = train_df[col] / train_df["length"]
             val_proc[col] = val_df[col] / val_df["length"]
             test_proc[col] = test_df[col] / test_df["length"]
 
-    for col in [c for c in train_proc.columns if c.startswith("density_s")]:
+    for col in [c for c in train_proc.columns if c.startswith("grid_")]:
         log_val = np.log(train_proc[col] + 1)
         mu, std = log_val.mean(), log_val.std()
         if std == 0 or not np.isfinite(std):
@@ -120,16 +173,6 @@ def normalize(train_df, val_df, test_df):
         train_proc[col] = (log_val - mu) / std
         val_proc[col] = (np.log(val_proc[col] + 1) - mu) / std
         test_proc[col] = (np.log(test_proc[col] + 1) - mu) / std
-
-    # yspread_s{n}: z-score only (pixel distances, not counts)
-    for col in train_df.columns:
-        if col.startswith("yspread_s"):
-            mu, std = train_df[col].mean(), train_df[col].std()
-            if std == 0 or not np.isfinite(std):
-                std = 1.0
-            train_proc[col] = (train_df[col] - mu) / std
-            val_proc[col] = (val_df[col] - mu) / std
-            test_proc[col] = (test_df[col] - mu) / std
 
     # length: log(x+1), then z-score
     log_len = np.log(train_df["length"] + 1)
@@ -161,37 +204,33 @@ def main(args):
     n_features = len(feature_cols)
     print(f"Total features: {n_features}")
 
-    train_dataset = GeometryDashDataset(train_proc)
-    val_dataset = GeometryDashDataset(val_proc)
-    test_dataset = GeometryDashDataset(test_proc)
+    if args.cnn:
+        train_dataset = GeometryDashCNNDataset(train_proc)
+        val_dataset = GeometryDashCNNDataset(val_proc)
+        test_dataset = GeometryDashCNNDataset(test_proc)
+    else:
+        train_dataset = GeometryDashDataset(train_proc)
+        val_dataset = GeometryDashDataset(val_proc)
+        test_dataset = GeometryDashDataset(test_proc)
     train_dl = DataLoader(train_dataset, batch_size=8, shuffle=True)
     val_dl = DataLoader(val_dataset, batch_size=8, shuffle=False)
     test_dl = DataLoader(test_dataset, batch_size=8, shuffle=False)
 
     criterion = nn.MSELoss()
-    L1_LAMBDA = 1e-3
-    N_SELECT = 25
+    L2_LAMBDA = 1e-4
+    model_path = "models/v2_spatial_cnn_model.pth" if args.cnn else "models/v2_spatial_model.pth"
 
     if args.load_model:
-        with open("models/v2_regression_selected_cols_spatial.json", "r") as f:
-            selected_cols = json.load(f)
-        model = MLPRegression(input_size=len(selected_cols), hidden_size=128)
-        model.load_state_dict(torch.load("models/v2_regression_model_spatial.pth"))
-        print("Loaded model from models/v2_regression_model_spatial.pth")
-
-        test_sel = test_proc[selected_cols + ["y", "stars"]].copy()
-        val_sel = val_proc[selected_cols + ["y", "stars"]].copy()
-        test_dl_sel = DataLoader(GeometryDashDataset(test_sel), batch_size=8, shuffle=False)
-        val_dl_sel = DataLoader(GeometryDashDataset(val_sel), batch_size=8, shuffle=False)
-
-        evaluate(model, GeometryDashDataset(val_sel), GeometryDashDataset(test_sel), val_dl_sel, test_dl_sel, criterion)
-        analyze(model, val_dl_sel, test_dl_sel, out_dir)
+        model = CNNRegression(hidden_size=128) if args.cnn else MLPRegression(input_size=n_features, hidden_size=128)
+        model.load_state_dict(torch.load(model_path))
+        print(f"Loaded model from {model_path}")
+        save_path = f"{out_dir}/cnn_results.json" if args.cnn else f"{out_dir}/mlp_results.json"
+        evaluate(model, val_dataset, test_dataset, val_dl, test_dl, criterion, save_path)
+        analyze(model, val_dl, test_dl, args.cnn, out_dir)
         return
 
-    # Phase 1: L1 training on all features for feature selection
-    print("Phase 1: L1 training for feature selection")
-    model = MLPRegression(input_size=n_features, hidden_size=128)
-    optimizer = torch.optim.Adam(model.parameters(), weight_decay=0, lr=3e-5)
+    model = CNNRegression(hidden_size=128) if args.cnn else MLPRegression(input_size=n_features, hidden_size=128)
+    optimizer = torch.optim.Adam(model.parameters(), weight_decay=L2_LAMBDA, lr=3e-5)
 
     train_losses, val_losses, val_accs, val_off_by_ones = [], [], [], []
 
@@ -216,53 +255,14 @@ def main(args):
         train_loss = 0.0
         for x, y, _ in train_dl:
             optimizer.zero_grad()
-            loss = criterion(model(x), y) + L1_LAMBDA * model.fc1.weight.abs().sum()
+            loss = criterion(model(x), y)
             train_loss += loss.item() * len(y)
             loss.backward()
             optimizer.step()
         train_loss /= len(train_dataset)
         train_losses.append(train_loss)
+        print(f"Epoch {epoch}, Train Loss: {train_loss:.4f}")
 
-    # L1 feature selection
-    with torch.no_grad():
-        importance = model.fc1.weight.abs().sum(dim=0)
-        _, selected_idx = torch.topk(importance, min(N_SELECT, n_features))
-        selected_idx = selected_idx.cpu().numpy()
-    selected_cols = [feature_cols[i] for i in selected_idx]
-    print(f"Selected {len(selected_cols)} features: {selected_cols[:10]}...")
-
-    # Phase 2: retrain on selected features
-    print("Phase 2: Retraining on selected features")
-    train_sel = train_proc[selected_cols + ["y", "stars"]].copy()
-    val_sel = val_proc[selected_cols + ["y", "stars"]].copy()
-    test_sel = test_proc[selected_cols + ["y", "stars"]].copy()
-    train_dl_sel = DataLoader(GeometryDashDataset(train_sel), batch_size=8, shuffle=True)
-    val_dl_sel = DataLoader(GeometryDashDataset(val_sel), batch_size=8, shuffle=False)
-    test_dl_sel = DataLoader(GeometryDashDataset(test_sel), batch_size=8, shuffle=False)
-
-    model = MLPRegression(input_size=len(selected_cols), hidden_size=128)
-    optimizer = torch.optim.Adam(model.parameters(), lr=3e-5)
-    for epoch in range(100):
-        model.eval()
-        with torch.no_grad():
-            got_right, val_loss, off_by_one = 0, 0.0, 0
-            for x, y, stars in val_dl_sel:
-                y_pred = model(x)
-                y_logits = torch.round(y_pred * 9) + 1
-                got_right += (y_logits == stars).sum().item()
-                off_by_one += ((y_logits - stars).abs() == 1).sum().item()
-                val_loss += criterion(y_pred, y).item() * len(y)
-            val_loss /= len(GeometryDashDataset(val_sel))
-            val_acc = got_right / len(GeometryDashDataset(val_sel))
-            print(f"[Selected] Epoch {epoch}, Val Loss: {val_loss:.4f}, Val Acc: {val_acc:.4f}")
-        model.train()
-        for x, y, _ in train_dl_sel:
-            optimizer.zero_grad()
-            loss = criterion(model(x), y)
-            loss.backward()
-            optimizer.step()
-
-    # Plot phase 1 training curves
     plt.figure(figsize=(8, 5))
     plt.plot(train_losses, label="Train Loss", color="C0")
     plt.plot(val_losses, label="Validation Loss", color="C1")
@@ -287,14 +287,13 @@ def main(args):
     plt.savefig(os.path.join(out_dir, "val_acc_off_by_one.png"), dpi=150)
     plt.close()
 
-    evaluate(model, GeometryDashDataset(val_sel), GeometryDashDataset(test_sel), val_dl_sel, test_dl_sel, criterion)
-    analyze(model, val_dl_sel, test_dl_sel, out_dir)
+    save_path = f"{out_dir}/cnn_results.json" if args.cnn else f"{out_dir}/mlp_results.json"
+    evaluate(model, val_dataset, test_dataset, val_dl, test_dl, criterion, save_path)
+    analyze(model, val_dl, test_dl, args.cnn, out_dir)
 
     os.makedirs("models", exist_ok=True)
-    torch.save(model.state_dict(), "models/v2_regression_model_spatial.pth")
-    with open("models/v2_regression_selected_cols_spatial.json", "w") as f:
-        json.dump(selected_cols, f)
-    print("Saved model to models/v2_regression_model_spatial.pth")
+    torch.save(model.state_dict(), model_path)
+    print(f"Saved model to {model_path}")
 
 
 if __name__ == "__main__":
@@ -303,5 +302,6 @@ if __name__ == "__main__":
 
     parser = ArgumentParser()
     parser.add_argument("--load_model", action="store_true", default=False)
+    parser.add_argument("--cnn", action="store_true", default=False)
     args = parser.parse_args()
     main(args)
