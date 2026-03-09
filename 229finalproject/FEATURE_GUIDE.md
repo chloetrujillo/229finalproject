@@ -40,16 +40,6 @@ Why this helps:
 - Can represent choke points, dense transitions, and pacing changes.
 - Useful for models that benefit from local structure (e.g., CNN-like processing).
 
-## Recommended Modeling Strategy
-
-Given your runs so far and interpretability/performance goals:
-
-1. Use **ID histogram (`data_v2`) + L1 selection** as the primary model path.
-2. Keep **basic geometry (`data`)** as the simple baseline for sanity checks.
-3. Use **spatial (`data_v2_spatial`)** as an extension path if it clearly improves MAE/one-off accuracy after tuning.
-
-This gives a practical balance: strong predictive signal, clear feature importance, and manageable training cost.
-
 ## Metadata Feature Glossary (Docs-Aligned)
 
 The dataset metadata schema contains exactly these leaf fields:
