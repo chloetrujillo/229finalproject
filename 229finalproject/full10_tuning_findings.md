@@ -5,7 +5,12 @@ I wanted to run Jaduk's `data_v2` model on the full 10-class star prediction tas
 
 ## What I changed from Jaduk's default pass
 - Kept the same model family and feature pipeline (`data_v2`, Adam, two-stage L1 feature selection with `n_select=25`).
-- Tuned hyperparameters:
+- Tuned hyperparametersthrough sweeps:
+learning rate: 1e-5, 3e-5, 1e-4, 3e-4, 1e-3
+batch size: 4, 8, 16, 32, 64
+loss: mse, l1, huber
+huber beta: 0.5, 1.0, 2.0, 3.0, 5.0
+
 - Final config I selected:
   - `loss=l1` (instead of `mse`)
   - `batch_size=4` (instead of `8`)
