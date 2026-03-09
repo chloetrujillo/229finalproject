@@ -1,4 +1,3 @@
-# Authors: Muran Wu
 # Render GD levels as images with semantic color groups
 
 import json
