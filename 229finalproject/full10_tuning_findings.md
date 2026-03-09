@@ -1,4 +1,4 @@
-# Full 10-Class Tuning Findings (My Writeup)
+# Full 10-Class Tuning Findings
 
 ## Goal
 I wanted to run Jaduk's `data_v2` model on the full 10-class star prediction task (stars `1-10`).
