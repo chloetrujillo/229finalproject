@@ -7,15 +7,16 @@ import pandas as pd
 from sklearn.model_selection import train_test_split
 from tqdm import tqdm
 
+# Resolve project root (one level up from viz/)
+PROJECT_ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 
-def process_level_data(id_to_category, categories, data_file, metadata_file):
-    with open(data_file, "r") as f:
+
+def process_level_data(id_to_category, categories, level_file):
+    with open(level_file, "r") as f:
         data = json.load(f)
-    with open(metadata_file, "r") as f:
-        metadata = json.load(f)
 
-    level_id = metadata.get("id")
-    stars = metadata.get("difficulty").get("stars")
+    level_id = data.get("id")
+    stars = data.get("difficulty", {}).get("stars")
 
     objs = data.get("data")
     if not objs or len(objs) == 0:
@@ -56,7 +57,7 @@ def process_level_data(id_to_category, categories, data_file, metadata_file):
 
 def main():
     # Load ID -> category mapping
-    with open("src/data/id_to_category.json", "r") as f:
+    with open(os.path.join(PROJECT_ROOT, "src", "data", "id_to_category.json"), "r") as f:
         id_to_category = json.load(f)
 
     # Get all unique categories
@@ -66,17 +67,15 @@ def main():
     dataset = []
     for difficulty in range(1, 11):
         print(f"Processing {difficulty} stars levels")
-        data_dir = os.path.join("levels", f"{difficulty}stars", "data")
-        metadata_dir = os.path.join("levels", f"{difficulty}stars", "metadata")
+        data_dir = os.path.join(PROJECT_ROOT, "levels", f"{difficulty}stars")
         if not os.path.isdir(data_dir):
             continue
         for file in tqdm(os.listdir(data_dir)):
             if file.endswith(".json"):
                 level_id = file.split(".")[0]
-                data_file = os.path.join(data_dir, f"{level_id}.json")
-                metadata_file = os.path.join(metadata_dir, f"{level_id}.json")
+                level_file = os.path.join(data_dir, f"{level_id}.json")
                 level_data = process_level_data(
-                    id_to_category, categories, data_file, metadata_file
+                    id_to_category, categories, level_file
                 )
                 if level_data is not False:
                     dataset.append(level_data)
@@ -84,12 +83,13 @@ def main():
                     print(f"Failed to process level {level_id}")
 
     # Train/val/test split
-    os.makedirs("data_v3", exist_ok=True)
+    out_dir = os.path.join(PROJECT_ROOT, "data_v3")
+    os.makedirs(out_dir, exist_ok=True)
     train_dataset, test_dataset = train_test_split(dataset, test_size=0.2, random_state=42)
     val_dataset, test_dataset = train_test_split(test_dataset, test_size=0.5, random_state=42)
-    pd.DataFrame(train_dataset).to_csv("data_v3/train.csv", index=False)
-    pd.DataFrame(val_dataset).to_csv("data_v3/val.csv", index=False)
-    pd.DataFrame(test_dataset).to_csv("data_v3/test.csv", index=False)
+    pd.DataFrame(train_dataset).to_csv(os.path.join(out_dir, "train.csv"), index=False)
+    pd.DataFrame(val_dataset).to_csv(os.path.join(out_dir, "val.csv"), index=False)
+    pd.DataFrame(test_dataset).to_csv(os.path.join(out_dir, "test.csv"), index=False)
     print(f"Saved: train={len(train_dataset)}, val={len(val_dataset)}, test={len(test_dataset)}")
 
 

@@ -8,6 +8,9 @@ from PIL import Image
 from argparse import ArgumentParser
 from tqdm import tqdm
 
+# Resolve project root (one level up from viz/)
+PROJECT_ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+
 # Category -> color group
 CATEGORY_TO_GROUP = {
     "block": "blocks",
@@ -76,8 +79,6 @@ def render_level(level_data, id_to_category, scale=1):
     y_min, y_max = min(all_y), max(all_y)
 
     # Normalize to pixel coordinates
-    # GD unit ~30 pixels, but we just map range to image size
-    # Use a fixed resolution: 1 GD unit = 1 pixel (before scale)
     UNIT = 30  # GD units per pixel (compress the coordinate space)
     w = int((x_max - x_min) / UNIT) + 1
     h = int((y_max - y_min) / UNIT) + 1
@@ -116,14 +117,14 @@ def main():
     parser.add_argument("--limit", type=int, default=None, help="Max levels to render per star rating")
     args = parser.parse_args()
 
-    with open("src/data/id_to_category.json", "r") as f:
+    with open(os.path.join(PROJECT_ROOT, "src", "data", "id_to_category.json"), "r") as f:
         id_to_category = json.load(f)
 
     star_range = [args.stars] if args.stars else range(1, 11)
 
     for n in star_range:
-        data_dir = os.path.join("levels", f"{n}stars")
-        out_dir = os.path.join("plots", f"{n}stars")
+        data_dir = os.path.join(PROJECT_ROOT, "levels", f"{n}stars")
+        out_dir = os.path.join(PROJECT_ROOT, "plots", f"{n}stars")
         if not os.path.isdir(data_dir):
             continue
         os.makedirs(out_dir, exist_ok=True)
