@@ -1,7 +1,7 @@
 # Full 10-Class Tuning Findings (My Writeup)
 
 ## Goal
-I wanted to run Jaduk's `data_v2` model on the full 10-class star prediction task (stars `1-10`), not the 3-class subset.
+I wanted to run Jaduk's `data_v2` model on the full 10-class star prediction task (stars `1-10`).
 
 ## What I changed from Jaduk's default pass
 - Kept the same model family and feature pipeline (`data_v2`, Adam, two-stage L1 feature selection with `n_select=25`).
