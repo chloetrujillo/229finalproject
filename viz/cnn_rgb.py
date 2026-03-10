@@ -257,7 +257,7 @@ def main():
     print(f"Model parameters: {n_params:,}")
     print(f"Loss: Ordinal regression (CORAL)")
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
+    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=1e-4)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, mode="min", factor=0.3, patience=3)
 
