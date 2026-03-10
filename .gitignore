@@ -8,3 +8,8 @@ models/**
 plots/**
 py/**
 crops/**
+plots/**
+plots_weighted/**
+crops_weighted/**
+*.tar.gz
+.DS_Store

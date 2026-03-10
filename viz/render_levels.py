@@ -1,4 +1,4 @@
-# Render GD levels as images with semantic color groups
+# Render GD levels as images with semantic color groups [https://github.com/GDColon/GDBrowser/tree/master]
 
 import json
 import os
