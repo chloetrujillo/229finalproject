@@ -1,0 +1,12 @@
+Object types in dataset (type -> count):
+----------------------------------------
+  'object': 150,057,515
+  'trigger': 7,382,493
+  'text': 290,049
+  'pad': 273,210
+  'portal': 261,994
+  'orb': 151,285
+  'pickup': 11,724
+----------------------------------------
+Total unique types: 7
+Total objects with a 'type' key: 158,428,270
