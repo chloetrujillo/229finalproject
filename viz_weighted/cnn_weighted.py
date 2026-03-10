@@ -48,9 +48,16 @@ class LevelDatasetWeighted(Dataset):
         return len(self.levels)
 
     def _load(self, fn):
-        if fn in self.cache:
-            return self.cache[fn]
-        return np.load(os.path.join(self.crops_dir, fn))
+        try:
+            if fn in self.cache:
+                arr = self.cache[fn]
+            else:
+                arr = np.load(os.path.join(self.crops_dir, fn))
+            if arr.shape != (CROP_H, CROP_W, N_CHANNELS):
+                return np.zeros((CROP_H, CROP_W, N_CHANNELS), dtype=np.float32)
+            return arr
+        except Exception:
+            return np.zeros((CROP_H, CROP_W, N_CHANNELS), dtype=np.float32)
 
     def __getitem__(self, idx):
         level_id, stars, crop_infos = self.levels[idx]
@@ -104,25 +111,25 @@ class MergedCropCNN6Ch(nn.Module):
     6-channel input CNN with ordinal regression (CORAL).
 
     Dimension flow for (6, 64, 386) input:
-      Conv1 + MaxPool(2): (32, 32, 193)
-      Conv2 + MaxPool(2): (64, 16, 96)
-      Conv3 + MaxPool(2): (128, 8, 48)
-      AdaptiveAvgPool(4, 8): (128, 4, 8)
-      Flatten: 4096
+      Conv1 + MaxPool(2): (16, 32, 193)
+      Conv2 + MaxPool(2): (32, 16, 96)
+      Conv3 + MaxPool(2): (64, 8, 48)
+      AdaptiveAvgPool(4, 24): (64, 4, 24)
+      Flatten: 6144
     """
 
-    def __init__(self, num_classes=10, feat_dim=256):
+    def __init__(self, num_classes=10, feat_dim=128):
         super().__init__()
         self.num_classes = num_classes
         self.backbone = nn.Sequential(
-            nn.Conv2d(N_CHANNELS, 32, 3, padding=1), nn.BatchNorm2d(32), nn.ReLU(), nn.MaxPool2d(2),
+            nn.Conv2d(N_CHANNELS, 16, 3, padding=1), nn.BatchNorm2d(16), nn.ReLU(), nn.MaxPool2d(2),
+            nn.Conv2d(16, 32, 3, padding=1), nn.BatchNorm2d(32), nn.ReLU(), nn.MaxPool2d(2),
             nn.Conv2d(32, 64, 3, padding=1), nn.BatchNorm2d(64), nn.ReLU(), nn.MaxPool2d(2),
-            nn.Conv2d(64, 128, 3, padding=1), nn.BatchNorm2d(128), nn.ReLU(), nn.MaxPool2d(2),
-            nn.AdaptiveAvgPool2d((4, 8)),
+            nn.AdaptiveAvgPool2d((4, 24)),
         )
         self.proj = nn.Sequential(
             nn.Flatten(),
-            nn.Linear(128 * 4 * 8, feat_dim),
+            nn.Linear(64 * 4 * 24, feat_dim),
             nn.ReLU(),
         )
         self.ordinal_head = nn.Sequential(
@@ -231,7 +238,7 @@ def main():
 
     use_cuda = torch.cuda.is_available()
     dl_kwargs = dict(collate_fn=collate_fn,
-                     num_workers=4 if use_cuda else 2,
+                     num_workers=min(2, os.cpu_count() or 1),
                      pin_memory=use_cuda)
     train_dl = DataLoader(train_ds, batch_size=args.batch_size, shuffle=True, **dl_kwargs)
     val_dl = DataLoader(val_ds, batch_size=args.batch_size, shuffle=False, **dl_kwargs)
@@ -247,6 +254,8 @@ def main():
     print(f"Loss: Ordinal regression (CORAL)")
 
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, mode="min", factor=0.3, patience=3)
 
     # Mixed precision (AMP) for CUDA — ~2x speedup on T4
     use_amp = use_cuda
@@ -298,6 +307,8 @@ def main():
               f"Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f} | "
               f"Acc: {metrics['acc']:.4f} | Off1: {metrics['off1']:.4f} | "
               f"MAE: {metrics['mae']:.2f}")
+
+        scheduler.step(val_loss)
 
         if val_loss < best_val_loss:
             best_val_loss = val_loss
