@@ -1,0 +1,35 @@
+{
+  "row": {
+    "timestamp_utc": "20260309T053838Z",
+    "tag": "ablation_basic",
+    "sweep_param": "",
+    "sweep_value": "",
+    "hidden_size": 128,
+    "batch_size": 8,
+    "lr": 3e-05,
+    "weight_decay": 0.0,
+    "epochs_stage1": 100,
+    "epochs_stage2": 100,
+    "l1_lambda": 0.001,
+    "n_select": 25,
+    "loss": "mse",
+    "huber_beta": 1.0,
+    "seed": 42,
+    "selected_feature_count": 7,
+    "val_loss": 0.068469898782761,
+    "val_acc": 0.21052631578947367,
+    "val_off_by_one": 0.631578947368421,
+    "test_loss": 0.06714480637237127,
+    "test_acc": 0.15789473684210525,
+    "test_off_by_one": 0.562753036437247
+  },
+  "selected_features": [
+    "x_max",
+    "portal_count",
+    "trigger_count",
+    "obj_count",
+    "y_min",
+    "y_max",
+    "x_min"
+  ]
+}
