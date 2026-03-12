@@ -13,3 +13,15 @@ plots_weighted/**
 crops_weighted/**
 *.tar.gz
 .DS_Store
+levels_resized/**
+levels_resized_rgb/**
+levels_3ch/**
+augmented_levels/**
+3channel_resize/**
+viz/**
+viz_weighted/**.claude/
+.claude/
+experiments/**
+cnn_exp/data/**
+colab/**
+levels.zip
