@@ -212,9 +212,9 @@ def main(args):
         train_dataset = GeometryDashDataset(train_proc)
         val_dataset = GeometryDashDataset(val_proc)
         test_dataset = GeometryDashDataset(test_proc)
-    train_dl = DataLoader(train_dataset, batch_size=8, shuffle=True)
-    val_dl = DataLoader(val_dataset, batch_size=8, shuffle=False)
-    test_dl = DataLoader(test_dataset, batch_size=8, shuffle=False)
+    train_dl = DataLoader(train_dataset, batch_size=4, shuffle=True)
+    val_dl = DataLoader(val_dataset, batch_size=4, shuffle=False)
+    test_dl = DataLoader(test_dataset, batch_size=4, shuffle=False)
 
     criterion = nn.MSELoss()
     L2_LAMBDA = 1e-4
@@ -230,7 +230,7 @@ def main(args):
         return
 
     model = CNNRegression(hidden_size=128) if args.cnn else MLPRegression(input_size=n_features, hidden_size=128)
-    optimizer = torch.optim.Adam(model.parameters(), weight_decay=L2_LAMBDA, lr=3e-5)
+    optimizer = torch.optim.Adam(model.parameters(), weight_decay=L2_LAMBDA, lr=1e-4)
 
     train_losses, val_losses, val_accs, val_off_by_ones = [], [], [], []
 
