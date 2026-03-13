@@ -7,6 +7,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from argparse import ArgumentParser
 import seaborn as sns
+import json
 
 class GeometryDashDataset(Dataset):
     def __init__(self, df):
@@ -251,6 +252,15 @@ def main(args):
         val_acc = got_right / len(val_dataset)
         val_off_by_one_acc = (got_right + val_off_by_ones) / len(val_dataset)
         print(f"Validation Loss: {val_loss}, Validation Accuracy: {val_acc}, Validation Off by One: {val_off_by_one_acc}")
+        with open("data/results.json", "w") as f:
+            json.dump({
+                "test_loss": test_loss,
+                "test_acc": test_acc,
+                "test_off_by_one_acc": test_off_by_one_acc,
+                "val_loss": val_loss,
+                "val_acc": val_acc,
+                "val_off_by_one_acc": val_off_by_one_acc
+            }, f)
 
     # Save model checkpoint
     torch.save(model.state_dict(), "models/preliminary_regression_model.pth")
