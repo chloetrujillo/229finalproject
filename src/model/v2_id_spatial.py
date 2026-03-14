@@ -194,9 +194,9 @@ def main(args):
     train_dataset = GeometryDashCNNDataset(train_proc, selected_ids)
     val_dataset = GeometryDashCNNDataset(val_proc, selected_ids)
     test_dataset = GeometryDashCNNDataset(test_proc, selected_ids)
-    train_dl = DataLoader(train_dataset, batch_size=4, shuffle=True)
-    val_dl = DataLoader(val_dataset, batch_size=4, shuffle=False)
-    test_dl = DataLoader(test_dataset, batch_size=4, shuffle=False)
+    train_dl = DataLoader(train_dataset, batch_size=16, shuffle=True)
+    val_dl = DataLoader(val_dataset, batch_size=16, shuffle=False)
+    test_dl = DataLoader(test_dataset, batch_size=16, shuffle=False)
 
     criterion = nn.MSELoss()
     L2_LAMBDA = 1e-4
